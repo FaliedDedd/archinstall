@@ -34,6 +34,7 @@ echo "ru_RU.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 useradd -m -G wheel -s /bin/bash $USERNAME
+passwd
 echo "$USERNAME:password" | chpasswd
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
