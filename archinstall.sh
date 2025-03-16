@@ -1,9 +1,9 @@
 #!/bin/bash
 
-DISK="/dev/nvme0n1"
+DISK="/dev/sda"
 BOOT_PART="${DISK}p1"
 ROOT_PART="${DISK}p2"
-USERNAME="falied"
+USERNAME="serv"
 
 if [[ $EUID -ne 0 ]]; then
    echo "Please start this script with root perm."
@@ -21,7 +21,7 @@ mount $ROOT_PART /mnt
 mkdir -p /mnt/boot
 mount $BOOT_PART /mnt/boot
 
-pacstrap /mnt base linux linux-firmware sudo grub efibootmgr gnome gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family
+pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
