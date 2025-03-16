@@ -6,7 +6,7 @@ ROOT_PART="${DISK}p2"
 USERNAME="falied"
 
 if [[ $EUID -ne 0 ]]; then
-   echo "Этот скрипт необходимо запускать с правами root."
+   echo "Please start this script with root perm."
    exit 1
 fi
 
@@ -41,4 +41,4 @@ grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
-echo "Установка завершена. Перезагрузите систему."
+echo "Install complete. Please settings sudoers and create passwd -m username"
