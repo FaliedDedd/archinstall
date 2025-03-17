@@ -1,6 +1,10 @@
 #!/bin/bash
+echo "Check disk partition"
+lsblk
+echo "Write you disk: /dev/yourdisk"
+read disk
 
-DISK="/dev/sda"
+DISK="/dev/disk"
 BOOT_PART="${DISK}p1"
 ROOT_PART="${DISK}p2"
 USERNAME="serv"
