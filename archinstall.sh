@@ -4,7 +4,7 @@ lsblk
 echo "Write you disk: /dev/yourdisk"
 read disk
 
-DISK="/dev/disk"
+DISK="/dev/$disk"
 BOOT_PART="${DISK}p1"
 ROOT_PART="${DISK}p2"
 USERNAME="serv"
