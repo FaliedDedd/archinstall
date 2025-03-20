@@ -25,7 +25,6 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-
 sgdisk --zap-all $DISK
 if [ $? -ne 0 ]; then
     echo "Failed to zap the disk. Please check if the disk is in use."
@@ -61,7 +60,6 @@ fi
 
 pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils xf86-video-amdgpu nodejs npm
 
-
 genfstab -U /mnt >> /mnt/etc/fstab
 
 
@@ -74,13 +72,17 @@ echo "ru_RU.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 
+
 echo "root:your_root_password" | chpasswd
 
 
 useradd -m -G wheel -s /bin/bash $USERNAME
 
 echo "$USERNAME:your_user_password" | chpasswd
+
+
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
 read -p "Do you want to add NVIDIA configuration? (y/n): " add_nvidia
 if [[ $add_nvidia == "y" || $add_nvidia == "Y" ]]; then
     mkdir -p /etc/X11/xorg.conf.d
@@ -101,4 +103,16 @@ if [[ $add_amd == "y" || $add_amd == "Y" ]]; then
 Section "Device"
     Identifier "AMD Card"
     Driver "amdgpu"
-End
+EndSection
+EOL
+    echo "AMD configuration added."
+fi
+
+
+npm install -g n
+
+
+n latest
+
+EOF
+
