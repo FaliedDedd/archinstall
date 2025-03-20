@@ -64,6 +64,7 @@ pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-d
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
+
 arch-chroot /mnt /bin/bash <<EOF
 ln -sf /usr/share/zoneinfo/Europe/Minsk /etc/localtime
 hwclock --systohc
@@ -72,6 +73,10 @@ systemctl enable NetworkManager
 echo "ru_RU.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
+
+# Установка пароля для root
+echo "Set password for root user:"
+passwd
 
 
 useradd -m -G wheel -s /bin/bash $USERNAME
@@ -82,7 +87,6 @@ passwd $USERNAME
 
 
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
-
 
 read -p "Do you want to add NVIDIA configuration? (y/n): " add_nvidia
 if [[ $add_nvidia == "y" || $add_nvidia == "Y" ]]; then
@@ -110,3 +114,4 @@ EOL
 fi
 
 pacman -S --noconfirm n
+EOF
