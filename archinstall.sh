@@ -27,8 +27,8 @@ fi
 sgdisk --zap-all $DISK
 if [ $? -ne 0 ]; then
     echo "Failed to zap the disk. Please check if the disk is in use."
-    exit 1
-fi
+    exit 1 fi
+
 
 sgdisk -n 1:0:+2G -t 1:ef00 -c 1:"EFI Boot" $DISK
 sgdisk -n 2:0:0 -t 2:8300 -c 2:"Linux Root" $DISK
