@@ -1,9 +1,18 @@
 #!/bin/bash
 echo "Check disk partition"
-echo "Please write your disk name /dev/(diskname)"
+echo "Available disks:"
+lsblk -d -o NAME,SIZE,TYPE,MOUNTPOINT | grep disk
+echo "Please write your disk name (e.g., nvme0n1 or sda):"
 read disk
 echo "What is your name?"
 read user
+
+
+if [ ! -b "/dev/$disk" ]; then
+    echo "Disk /dev/$disk does not exist. Please check the name and try again."
+    exit 1
+fi
+
 lsblk
 echo "Using disk: /dev/$disk"
 DISK="/dev/$disk"
