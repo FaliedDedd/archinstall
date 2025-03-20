@@ -1,7 +1,7 @@
 #!/bin/bash
 echo "Check disk partition"
 lsblk
-echo "Write you disk: /dev/yourdisk"
+echo "Write your disk: /dev/yourdisk"
 read disk
 
 DISK="/dev/$disk"
@@ -25,7 +25,7 @@ mount $ROOT_PART /mnt
 mkdir -p /mnt/boot
 mount $BOOT_PART /mnt/boot
 
-pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family
+pacstrap /mnt base linux linux-firmware sudo grub efibootmgr gnome gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils xf86-video-amdgpu
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -41,6 +41,28 @@ useradd -m -G wheel -s /bin/bash $USERNAME
 passwd
 echo "$USERNAME:password" | chpasswd
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
+
+mkdir -p /etc/X11/xorg.conf.d
+cat <<EOL > /etc/X11/xorg.conf.d/10-nvidia.conf
+Section "Device"
+    Identifier "NVIDIA Card"
+    Driver "nvidia"
+    Option "AllowEmptyInitialConfiguration" "true"
+EndSection
+EOL
+
+
+cat <<EOL > /etc/X11/xorg.conf.d/20-amd.conf
+Section "Device"
+    Identifier "AMD Card"
+    Driver "amdgpu"
+EndSection
+EOL
+
+
+pacman -S --noconfirm nvidia-prime
+
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 EOF
