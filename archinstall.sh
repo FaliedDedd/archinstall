@@ -25,18 +25,42 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+
 sgdisk --zap-all $DISK
+if [ $? -ne 0 ]; then
+    echo "Failed to zap the disk. Please check if the disk is in use."
+    exit 1
+fi
+
+
 sgdisk -n 1:0:+2G -t 1:ef00 -c 1:"EFI Boot" $DISK
 sgdisk -n 2:0:0 -t 2:8300 -c 2:"Linux Root" $DISK
+if [ $? -ne 0 ]; then
+    echo "Failed to create partitions."
+    exit 1
+fi
+
 
 mkfs.fat -F32 $BOOT_PART
 mkfs.ext4 $ROOT_PART
 
+
 mount $ROOT_PART /mnt
+if [ $? -ne 0 ]; then
+    echo "Failed to mount root partition."
+    exit 1
+fi
+
 mkdir -p /mnt/boot
 mount $BOOT_PART /mnt/boot
+if [ $? -ne 0 ]; then
+    echo "Failed to mount boot partition."
+    exit 1
+fi
+
 
 pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils xf86-video-amdgpu
+
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -49,10 +73,13 @@ echo "ru_RU.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 
+
 useradd -m -G wheel -s /bin/bash $USERNAME
+
 
 echo "Set password for user $USERNAME:"
 passwd $USERNAME
+
 
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
@@ -82,10 +109,4 @@ EOL
     echo "AMD configuration added."
 fi
 
-pacman -S --noconfirm nvidia-prime
-
-grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-grub-mkconfig -o /boot/grub/grub.cfg
-EOF
-
-echo "Install complete. Please configure sudoers and set password for user $USERNAME."
+pacman -S --noconfirm n
