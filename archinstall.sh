@@ -1,13 +1,12 @@
 #!/bin/bash
 echo "Check disk partition"
-lsblk
-echo "Write your disk: /dev/yourdisk"
-read disk
+echo "Write your disk"
 
-DISK="/dev/$disk"
+
+DISK="/dev/sda"
 BOOT_PART="${DISK}p1"
 ROOT_PART="${DISK}p2"
-USERNAME="serv"
+USERNAME="falied"
 
 if [[ $EUID -ne 0 ]]; then
    echo "Please start this script with root perm."
