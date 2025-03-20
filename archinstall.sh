@@ -25,6 +25,7 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+
 sgdisk --zap-all $DISK
 if [ $? -ne 0 ]; then
     echo "Failed to zap the disk. Please check if the disk is in use."
@@ -38,7 +39,6 @@ if [ $? -ne 0 ]; then
     echo "Failed to create partitions."
     exit 1
 fi
-
 
 mkfs.fat -F32 $BOOT_PART
 mkfs.ext4 $ROOT_PART
@@ -78,10 +78,12 @@ echo "root:your_root_password" | chpasswd
 
 useradd -m -G wheel -s /bin/bash $USERNAME
 
+
 echo "$USERNAME:your_user_password" | chpasswd
 
 
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
 
 read -p "Do you want to add NVIDIA configuration? (y/n): " add_nvidia
 if [[ $add_nvidia == "y" || $add_nvidia == "Y" ]]; then
@@ -108,11 +110,9 @@ EOL
     echo "AMD configuration added."
 fi
 
-
 npm install -g n
 
 
 n latest
 
 EOF
-
