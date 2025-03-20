@@ -7,7 +7,6 @@ read disk
 echo "What is your name?"
 read user
 
-
 if [ ! -b "/dev/$disk" ]; then
     echo "Disk /dev/$disk does not exist. Please check the name and try again."
     exit 1
@@ -59,8 +58,7 @@ if [ $? -ne 0 ]; then
 fi
 
 
-pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils xf86-video-amdgpu
-
+pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils xf86-video-amdgpu nodejs npm
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -74,7 +72,7 @@ echo "ru_RU.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 
-# Установка пароля для root
+
 echo "Set password for root user:"
 passwd
 
@@ -87,6 +85,7 @@ passwd $USERNAME
 
 
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
 
 read -p "Do you want to add NVIDIA configuration? (y/n): " add_nvidia
 if [[ $add_nvidia == "y" || $add_nvidia == "Y" ]]; then
@@ -113,5 +112,9 @@ EOL
     echo "AMD configuration added."
 fi
 
-pacman -S --noconfirm n
+
+npm install -g n
+
+n latest
+
 EOF
