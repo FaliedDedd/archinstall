@@ -7,7 +7,6 @@ read disk
 echo "What is your name?"
 read user
 
-
 if [ ! -b "/dev/$disk" ]; then
     echo "Disk /dev/$disk does not exist. Please check the name and try again."
     exit 1
@@ -25,13 +24,11 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-
 sgdisk --zap-all $DISK
 if [ $? -ne 0 ]; then
     echo "Failed to zap the disk. Please check if the disk is in use."
     exit 1
 fi
-
 
 sgdisk -n 1:0:+2G -t 1:ef00 -c 1:"EFI Boot" $DISK
 sgdisk -n 2:0:0 -t 2:8300 -c 2:"Linux Root" $DISK
@@ -42,7 +39,6 @@ fi
 
 mkfs.fat -F32 $BOOT_PART
 mkfs.ext4 $ROOT_PART
-
 
 mount $ROOT_PART /mnt
 if [ $? -ne 0 ]; then
@@ -57,11 +53,9 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-
 pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils xf86-video-amdgpu nodejs npm
 
 genfstab -U /mnt >> /mnt/etc/fstab
-
 
 arch-chroot /mnt /bin/bash <<EOF
 ln -sf /usr/share/zoneinfo/Europe/Minsk /etc/localtime
@@ -72,18 +66,17 @@ echo "ru_RU.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 
+read -sp "Enter root password: " root_password
+echo "root:\$root_password" | chpasswd
 
-echo "root:your_root_password" | chpasswd
-
-
-useradd -m -G wheel -s /bin/bash $USERNAME
-
-
-echo "$USERNAME:your_user_password" | chpasswd
-
-
-echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
-
+if id "$USERNAME" &>/dev/null; then
+    echo "User '$USERNAME' already exists."
+else
+    useradd -m -G wheel -s /bin/bash $USERNAME
+    read -sp "Enter password for user $USERNAME: " user_password
+    echo "$USERNAME:\$user_password" | chpasswd
+    echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+fi
 
 read -p "Do you want to add NVIDIA configuration? (y/n): " add_nvidia
 if [[ $add_nvidia == "y" || $add_nvidia == "Y" ]]; then
@@ -111,8 +104,6 @@ EOL
 fi
 
 npm install -g n
-
-
 n latest
 
 EOF
