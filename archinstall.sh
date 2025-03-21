@@ -27,7 +27,7 @@ mount $BOOT_PART /mnt/boot
 
 
 
-pacstrap /mnt base linux linux-firmware sudo grub efibootmgr gnome gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family
+pacstrap /mnt base linux linux-firmware sudo grub efibootmgr gnome gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family firefox nvidia 
 
 
 
