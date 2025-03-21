@@ -4,8 +4,6 @@ echo "Available disks:"
 lsblk -d -o NAME,SIZE,TYPE,MOUNTPOINT | grep disk
 echo "Please write your disk name (e.g., nvme0n1 or sda):"
 read disk
-echo "What is your name?"
-read user
 
 if [ ! -b "/dev/$disk" ]; then
     echo "Disk /dev/$disk does not exist. Please check the name and try again."
@@ -17,7 +15,6 @@ echo "Using disk: /dev/$disk"
 DISK="/dev/$disk"
 BOOT_PART="${DISK}p1"
 ROOT_PART="${DISK}p2"
-USERNAME="$user"
 
 if [[ $EUID -ne 0 ]]; then
    echo "Please start this script with root permissions."
@@ -53,7 +50,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils xf86-video-amdgpu nodejs npm
+pacstrap /mnt base linux linux-firmware sudo grub efibootmgr
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -66,46 +63,13 @@ echo "ru_RU.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 
-read -sp "Enter root password: " root_password
-echo
-echo "root:\$root_password" | chpasswd
+# Set root password
+echo "root:root_password" | chpasswd
 
-if id "$USERNAME" &>/dev/null; then
-    echo "User '$USERNAME' already exists."
-else
-    useradd -m -G wheel -s /bin/bash $USERNAME
-    read -sp "Enter password for user $USERNAME: " user_password
-    echo
-    echo "$USERNAME:\$user_password" | chpasswd
-    echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
-fi
-
-read -p "Do you want to add NVIDIA configuration? (y/n): " add_nvidia
-if [[ $add_nvidia == "y" || $add_nvidia == "Y" ]]; then
-    mkdir -p /etc/X11/xorg.conf.d
-    cat <<EOL > /etc/X11/xorg.conf.d/10-nvidia.conf
-Section "Device"
-    Identifier "NVIDIA Card"
-    Driver "nvidia"
-    Option "AllowEmptyInitialConfiguration" "true"
-EndSection
-EOL
-    echo "NVIDIA configuration added."
-fi
-
-read -p "Do you want to add AMD configuration? (y/n): " add_amd
-if [[ $add_amd == "y" || $add_amd == "Y" ]]; then
-    mkdir -p /etc/X11/xorg.conf.d
-    cat <<EOL > /etc/X11/xorg.conf.d/20-amd.conf
-Section "Device"
-    Identifier "AMD Card"
-    Driver "amdgpu"
-EndSection
-EOL
-    echo "AMD configuration added."
-fi
-
-npm install -g n
-n latest
+# Create a user
+USERNAME="user"
+useradd -m -G wheel -s /bin/bash $USERNAME
+echo "$USERNAME:user_password" | chpasswd
+echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
 EOF
