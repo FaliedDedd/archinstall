@@ -15,6 +15,7 @@ echo
 if [[ $EUID -ne 0 ]]; then
    echo "Пожалуйста, запустите этот скрипт с root-правами."
    exit 1
+fi
 
 sgdisk --zap-all $DISK
 sgdisk -n 1:0:+2G -t 1:ef00 -c 1:"EFI Boot" $DISK
@@ -27,7 +28,7 @@ mount $ROOT_PART /mnt
 mkdir -p /mnt/boot
 mount $BOOT_PART /mnt/boot
 
-pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family
+pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils nvidia-settings
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -45,11 +46,15 @@ echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 
 useradd -m -G wheel -s /bin/bash $USERNAME
 echo "$USERNAME:$PASSWORD" | chpasswd
+echo "root:$PASSWORD" | chpasswd
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 
+echo "options nvidia-drm modeset=1" >> /etc/modprobe.d/nvidia.conf
+mkinitcpio -P
+
 EOF
 
-echo "Inа! Пользователь $USERNAME создан, настройки sudo установлены."
+echo "Установка завершена! Пользователь $USERNAME создан, настройки sudo установлены, root-пароль установлен, драйверы NVIDIA настроены."
