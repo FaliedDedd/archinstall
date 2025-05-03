@@ -28,7 +28,7 @@ mount $ROOT_PART /mnt
 mkdir -p /mnt/boot
 mount $BOOT_PART /mnt/boot
 
-pacstrap /mnt base linux linux-firmware sudo grub efibootmgr cinnamon gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils nvidia-settings
+pacstrap /mnt base linux linux-firmware sudo grub efibootmgr gnome gdm base-devel nano vim networkmanager git xorg ttf-ubuntu-font-family nvidia nvidia-utils nvidia-settings
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
