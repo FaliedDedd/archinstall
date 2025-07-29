@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Report errors with line number
-trap 'whiptail --backtitle "$BACKTITLE" \
-      --msgbox "✖ Error on line $LINENO" 8 60; exit 1' ERR
+# Title used by whiptail dialogs
+BACKTITLE="Arch Installer"
+
+# Enhanced ERR trap: reports line number and command
+trap '
+  echo >&2 "✖ Error on line $LINENO running: ${BASH_COMMAND}"
+  whiptail --backtitle "$BACKTITLE" \
+    --msgbox "✖ Error on line $LINENO\n${BASH_COMMAND}" 10 70
+  exit 1
+' ERR
 
 # ┌─────────────────────────────────────────────────────────┐
 # │        ARCH LINUX INSTALLER — SIMPLE EDITION          │
@@ -25,13 +32,10 @@ EOF
 tput sgr0
 sleep 1
 
-BACKTITLE="Arch Installer"
-
-# Step 1: Check Internet
+# Step 1: Internet check
 while true; do
   if ping -c1 8.8.8.8 &>/dev/null; then
-    whiptail --backtitle "$BACKTITLE" --msgbox \
-      "✓ Internet connection detected." 8 60
+    whiptail --backtitle "$BACKTITLE" --msgbox "✓ Internet connection detected." 8 60
     break
   else
     whiptail --backtitle "$BACKTITLE" \
@@ -39,8 +43,8 @@ while true; do
   fi
 done
 
-# Step 2: Ensure required tools
-for tool in whiptail pacstrap genfstab arch-chroot lsblk parted udevadm; do
+# Step 2: Ensure required tools are installed
+for tool in whiptail pacstrap genfstab arch-chroot lsblk parted udevadm partprobe; do
   if ! command -v "$tool" &>/dev/null; then
     pacman -Sy --noconfirm "$tool" &>/dev/null
   fi
@@ -86,7 +90,7 @@ fi
 # Step 5: Partitioning loop
 while true; do
   whiptail --backtitle "$BACKTITLE" --title "Disk Partitioning" \
-    --msgbox "Now running cfdisk:\n • Create a root partition\n • (opt.) EFI\n • (opt.) swap\nWrite the changes, then exit." 12 60
+    --msgbox "Running cfdisk:\n • Create root partition\n • (optional) EFI\n • (optional) swap\nWrite changes and exit." 12 60
   cfdisk
 
   # Re-read partition table
@@ -95,31 +99,31 @@ while true; do
   done
   udevadm settle --timeout=5
 
-  # Check if any partitions exist
+  # Check if partitions now exist
   if lsblk -pn -o NAME,TYPE | grep -q 'part$'; then
     break
   fi
 
-  # If still no partitions, retry or exit
+  # Retry or bail if still none
   if ! whiptail --backtitle "$BACKTITLE" \
-       --yesno "No partitions found.\nRe-run cfdisk?" 8 60; then
+       --yesno "No partitions detected.\nRe-run cfdisk?" 8 60; then
     exit 1
   fi
 done
 
-# Step 6: Partition selector
+# Step 6: Dynamic partition selector
 select_partition() {
-  local prompt="$1"
-  local opts=()
+  local prompt="$1" opts=() dev type size
   while read -r dev type; do
-    [[ "$type" == "part" ]] && \
-      opts+=( "$dev" "$(lsblk -n -o SIZE "$dev")" )
+    if [[ "$type" == "part" ]]; then
+      size=$(lsblk -n -o SIZE "$dev")
+      opts+=( "$dev" "$size" )
+    fi
   done < <(lsblk -pn -o NAME,TYPE)
 
   [[ ${#opts[@]} -gt 0 ]] || return 1
 
-  whiptail --backtitle "$BACKTITLE" \
-    --title "$prompt" \
+  whiptail --backtitle "$BACKTITLE" --title "$prompt" \
     --menu "Select partition:" 15 60 6 \
     "${opts[@]}" 3>&1 1>&2 2>&3
 }
@@ -155,7 +159,13 @@ genfstab -U /mnt >> /mnt/etc/fstab
 # Step 10: Chroot & configure
 arch-chroot /mnt /bin/bash <<'EOF'
 set -euo pipefail
-trap 'whiptail --msgbox "✖ Chroot error on line $LINENO" 8 60; exit 1' ERR
+
+# Trap inside chroot
+trap '
+  echo >&2 "✖ Chroot error on line $LINENO: ${BASH_COMMAND}"
+  whiptail --msgbox "✖ Chroot error on line $LINENO\n${BASH_COMMAND}" 10 70
+  exit 1
+' ERR
 
 BACKTITLE="Chroot Setup"
 
@@ -179,11 +189,11 @@ HOSTNAME=$(whiptail --backtitle "$BACKTITLE" --title "Hostname" \
   --inputbox "Enter hostname:" 10 60 archlinux \
   3>&1 1>&2 2>&3) || exit 1
 echo "$HOSTNAME" > /etc/hostname
-cat >> /etc/hosts <<EOD
+cat >> /etc/hosts <<HOSTS_EOF
 127.0.0.1   localhost
 ::1         localhost
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
-EOD
+HOSTS_EOF
 
 # Root password
 PASS_ROOT=$(whiptail --backtitle "$BACKTITLE" --title "Root Password" \
@@ -191,7 +201,7 @@ PASS_ROOT=$(whiptail --backtitle "$BACKTITLE" --title "Root Password" \
   3>&1 1>&2 2>&3) || exit 1
 echo "root:$PASS_ROOT" | chpasswd
 
-# Add a non-root user
+# Add non-root user
 if whiptail --backtitle "$BACKTITLE" --title "Add User" \
      --yesno "Create a non-root user?" 10 60; then
 
@@ -208,7 +218,7 @@ if whiptail --backtitle "$BACKTITLE" --title "Add User" \
   sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 fi
 
-# Install and configure GRUB
+# Install GRUB
 if [[ -d /sys/firmware/efi ]]; then
   pacman -Sy --noconfirm grub efibootmgr &>/dev/null
   grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
@@ -222,7 +232,7 @@ EOF
 
 # Step 11: Finish
 whiptail --backtitle "$BACKTITLE" --title "Done!" \
-  --msgbox "Installation complete!\nPlease reboot and remove installation media." 8 60
+  --msgbox "Installation complete!\nReboot and remove installation media." 8 60
 
 exit 0
 ```
