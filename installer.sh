@@ -6,7 +6,7 @@ set -euo pipefail
 # └─────────────────────────────────────────────────────────────────┘
 
 #  Settings ────────────────────────────────────────────────────────
-DISK="/dev/sda"
+DISK="/dev/nvme1n1"
 HOSTNAME="archkde"
 USERNAME="archuser"
 PASSWORD="archlinux"
@@ -30,13 +30,13 @@ parted "$DISK" --script mkpart primary ext4 $EFI_SIZE "-$SWAP_SIZE"
 parted "$DISK" --script mkpart primary linux-swap "-$SWAP_SIZE" 100%
 
 #  2) Format & mount ─────────────────────────────────────────────
-mkfs.fat -F32 "${DISK}1"
-mkfs.ext4   "${DISK}2"
-mkswap      "${DISK}3"
-mount       "${DISK}2" /mnt
-swapon      "${DISK}3"
+mkfs.fat -F32 "${DISK}p1"
+mkfs.ext4   "${DISK}p2"
+mkswap      "${DISK}p3"
+mount       "${DISK}p2" /mnt
+swapon      "${DISK}p3"
 mkdir -p    /mnt/boot
-mount       "${DISK}1" /mnt/boot
+mount       "${DISK}p1" /mnt/boot
 
 #  3) Base system install ────────────────────────────────────────
 pacstrap /mnt \
