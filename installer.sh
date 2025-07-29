@@ -38,7 +38,7 @@ while true; do
 done
 
 # Step 2: Ensure helper tools
-for tool in whiptail pacstrap genfstab arch-chroot lsblk; do
+for tool in whiptail pacstrap genfstab arch-chroot lsblk parted; do
   if ! command -v "$tool" &>/dev/null; then
     pacman -Sy --noconfirm "$tool" &>/dev/null
   fi
@@ -83,36 +83,31 @@ fi
 
 # Step 5: Disk Partitioning
 whiptail --backtitle "$BACKTITLE" --title "Disk Partitioning" \
-  --msgbox "We will open cfdisk. Create at least:\n • root partition\n • (optional) EFI\n • (optional) swap\nThen write changes and exit." 12 60
+  --msgbox "We will open cfdisk:\n • Create root\n • (opt.) EFI\n • (opt.) swap\nWrite changes and exit." 12 60
 cfdisk
+
+# Re-read partition table so lsblk sees new partitions
+# Identify all disk devices and probe them
+for disk in $(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/" $1}'); do
+  partprobe "$disk" || true
+done
+udevadm settle --timeout=5
 
 # Step 6: Helper for partition selection with dynamic menu
 select_partition() {
-  local prompt="$1"
-  local -a choices=()
-  # Gather all partitions
+  local prompt="$1" choices=() name size type
   while read -r name size type; do
-    if [[ "$type" == "part" ]]; then
-      choices+=( "/dev/${name}" "${size}" )
-    fi
+    [[ "$type" == "part" ]] && choices+=( "/dev/${name}" "${size}" )
   done < <(lsblk -dn -o NAME,SIZE,TYPE)
 
   if [ "${#choices[@]}" -eq 0 ]; then
-    whiptail --backtitle "$BACKTITLE" \
-      --msgbox "No partitions detected." 8 60
+    whiptail --backtitle "$BACKTITLE" --msgbox "No partitions detected." 8 60
     return 1
   fi
 
-  # Show menu
-  local selection
-  selection=$(whiptail --backtitle "$BACKTITLE" \
-    --title "$prompt" \
+  whiptail --backtitle "$BACKTITLE" --title "$prompt" \
     --menu "Select a partition:" 15 60 6 \
-    "${choices[@]}" \
-    3>&1 1>&2 2>&3) || return 1
-
-  echo "$selection"
-  return 0
+    "${choices[@]}" 3>&1 1>&2 2>&3
 }
 
 # Step 7: Format & mount partitions
