@@ -1,171 +1,159 @@
 #!/usr/bin/env bash
 set -euo pipefail
-trap 'echo "✖ Error on line $LINENO"; exit 1' ERR
+trap 'whiptail --msgbox "✖ Error on line $LINENO" 8 40; exit 1' ERR
 
-# ┌─────────────────────────────────────────────────────────┐
-# │           ARCH LINUX INSTALLER — BELARUS              │
-# └─────────────────────────────────────────────────────────┘
+# ┌───────────────────────────────────────────────┐
+# │      ARCH LINUX INSTALLER — BELARUS & EU      │
+# └───────────────────────────────────────────────┘
 
-# Colored ASCII‐art header
 clear
 tput setaf 2
 cat <<"EOF"
 
-      Welcome to the Arch Linux Installer
-                     for Belarus
+
+     Welcome to the Arch Linux Installer
+     I'm not gay
+     (Belarus first, Europe as fallback)
 EOF
 tput sgr0
-sleep 2
+sleep 1
 
-BACKTITLE="Arch Linux Installer — Belarus"
+BACKTITLE="Arch Installer — BY→EU"
 
-# 0️⃣ Check for and install helper tools if missing
-required=(whiptail reflector pacstrap genfstab arch-chroot)
-for cmd in "${required[@]}"; do
-  if ! command -v "$cmd" &>/dev/null; then
-    whiptail --backtitle "$BACKTITLE" \
-      --msgbox "Installing missing tool: $cmd" 8 60
-    pacman -Sy --noconfirm "$cmd"
+# Step 1: Internet connectivity check
+while true; do
+  if ping -c1 8.8.8.8 &>/dev/null; then
+    whiptail --backtitle "$BACKTITLE" --msgbox \
+      "✓ Internet connection detected." 8 50
+    break
+  else
+    whiptail --backtitle "$BACKTITLE" --yesno \
+      "✖ No internet connection.\nRetry?" 8 50 || exit 1
   fi
 done
 
-# 1️⃣ Keyboard layout
-KEYMAP=$(whiptail --backtitle "$BACKTITLE" \
-  --title "Keyboard Layout" \
-  --inputbox "Enter your keyboard layout code (e.g., us, ru):" 10 60 us \
-  3>&1 1>&2 2>&3)
-if [[ $? -ne 0 ]]; then
-  echo "╳ Setup cancelled by user."; exit 1
-fi
-KEYMAP=${KEYMAP:-us}
+# Step 2: Ensure helper tools
+TOOLS=(whiptail reflector pacstrap genfstab arch-chroot)
+for t in "${TOOLS[@]}"; do
+  if ! command -v "$t" &>/dev/null; then
+    pacman -Sy --noconfirm "$t" &>/dev/null
+  fi
+done
 
-if ! loadkeys "$KEYMAP"; then
-  whiptail --backtitle "$BACKTITLE" \
-    --msgbox "Failed to load '$KEYMAP'. Falling back to 'us'." 8 60
-  loadkeys us
+# Step 3: Keyboard layout
+KEYMAP=$(whiptail --backtitle "$BACKTITLE" --title "Keyboard Layout" \
+  --inputbox "Enter layout code (us, ru, etc.):" 10 50 us \
+  3>&1 1>&2 2>&3) || exit 1
+KEYMAP=${KEYMAP:-us}
+if ! loadkeys "$KEYMAP" &>/dev/null; then
+  loadkeys us &>/dev/null
   KEYMAP=us
 fi
 
-# 2️⃣ Mirrorlist for Belarus
-whiptail --backtitle "$BACKTITLE" \
-  --title "Updating Mirrorlist" \
-  --msgbox "Configuring pacman mirrors for Belarus region..." 8 60
+# Step 4: Mirrorlist BY→EU
+whiptail --backtitle "$BACKTITLE" --title "Updating Mirrorlist" \
+  --gauge "Fetching fastest HTTPS mirrors for Belarus..." 6 50 10
+reflector --country "Belarus" --age 12 --protocol https \
+  --sort rate --save /etc/pacman.d/mirrorlist &>/dev/null
 
-reflector \
-  --country "Belarus" \
-  --age 12 \
-  --protocol https \
-  --sort rate \
-  --save /etc/pacman.d/mirrorlist
-
-# 3️⃣ Network configuration
-if whiptail --backtitle "$BACKTITLE" \
-     --title "Network Setup" \
-     --yesno "Do you need to configure Wi-Fi?\nSelect Yes for Wi-Fi, No for Ethernet." 10 60; then
-
-  whiptail --backtitle "$BACKTITLE" \
-    --msgbox "We will use iwd to connect to your Wi-Fi network." 8 60
-
-  systemctl start iwd
-
-  WDEV=$(whiptail --backtitle "$BACKTITLE" \
-    --title "Wi-Fi Device" \
-    --inputbox "Enter your Wi-Fi device name (e.g., wlan0):" 10 60 wlan0 \
-    3>&1 1>&2 2>&3)
-  SSID=$(whiptail --backtitle "$BACKTITLE" \
-    --title "SSID" \
-    --inputbox "Enter the SSID of your network:" 10 60 \
-    3>&1 1>&2 2>&3)
-  PSK=$(whiptail --backtitle "$BACKTITLE" \
-    --title "Password" \
-    --passwordbox "Enter the password for '$SSID':" 10 60 \
-    3>&1 1>&2 2>&3)
-
-  iwctl station "$WDEV" scan
-  iwctl station "$WDEV" connect "$SSID" --passphrase "$PSK"
-
-else
-  whiptail --backtitle "$BACKTITLE" \
-    --msgbox "Starting DHCP client for Ethernet..." 8 60
-  systemctl start dhcpcd
+if ! grep -q '^Server' /etc/pacman.d/mirrorlist; then
+  whiptail --backtitle "$BACKTITLE" --title "Fallback" \
+    --gauge "No Belarus mirrors found. Falling back to Europe..." 6 50 10
+  reflector --continent Europe --age 12 --protocol https \
+    --sort rate --save /etc/pacman.d/mirrorlist &>/dev/null
 fi
 
-# 4️⃣ Disk partitioning (manual)
-whiptail --backtitle "$BACKTITLE" \
-  --title "Disk Partitioning" \
-  --msgbox "cfdisk will open. Create at least:\n  • root partition\n  • (optional) EFI partition\n  • (optional) swap\nThen write changes and exit." 12 60
+sleep 1
+
+# Step 5: Network setup
+if whiptail --backtitle "$BACKTITLE" --title "Network Setup" \
+     --yesno "Use Wi-Fi? (Yes) or Ethernet (No)" 8 50; then
+
+  systemctl start iwd &>/dev/null
+  WDEV=$(whiptail --backtitle "$BACKTITLE" --title "Wi-Fi Device" \
+    --inputbox "Enter your Wi-Fi interface (e.g., wlan0):" 10 50 wlan0 \
+    3>&1 1>&2 2>&3) || exit 1
+
+  SSID=$(whiptail --backtitle "$BACKTITLE" --title "SSID" \
+    --inputbox "Enter Wi-Fi network name:" 10 50 \
+    3>&1 1>&2 2>&3) || exit 1
+
+  PSK=$(whiptail --backtitle "$BACKTITLE" --title "Password" \
+    --passwordbox "Enter password for $SSID:" 10 50 \
+    3>&1 1>&2 2>&3) || exit 1
+
+  iwctl station "$WDEV" scan &>/dev/null
+  iwctl station "$WDEV" connect "$SSID" --passphrase "$PSK" &>/dev/null
+
+else
+  systemctl start dhcpcd &>/dev/null
+fi
+
+# Step 6: Disk partitioning
+whiptail --backtitle "$BACKTITLE" --title "Disk Partitioning" \
+  --msgbox "cfdisk will open. Create:\n • root\n • (opt) EFI\n • (opt) swap\nSave and exit." 10 50
 cfdisk
 
-# 5️⃣ Format & mount
-ROOT=$(whiptail --backtitle "$BACKTITLE" \
-  --title "Root Partition" \
-  --inputbox "Specify your root partition (e.g., /dev/sda1):" 10 60 \
-  3>&1 1>&2 2>&3)
-[[ -n "$ROOT" ]] || { echo "╳ Root partition not specified."; exit 1; }
-mkfs.ext4 "$ROOT"
+# Step 7: Format & mount
+ROOT=$(whiptail --backtitle "$BACKTITLE" --title "Root Partition" \
+  --inputbox "Root partition (e.g., /dev/sda1):" 10 50 \
+  3>&1 1>&2 2>&3) || exit 1
+mkfs.ext4 "$ROOT" &>/dev/null
 mount "$ROOT" /mnt
 
-EFI=$(whiptail --backtitle "$BACKTITLE" \
-  --title "EFI Partition" \
-  --inputbox "Specify your EFI partition (leave empty if none):" 10 60 \
-  3>&1 1>&2 2>&3)
+EFI=$(whiptail --backtitle "$BACKTITLE" --title "EFI Partition" \
+  --inputbox "EFI partition (leave empty if none):" 10 50 \
+  3>&1 1>&2 2>&3) || exit 1
 if [[ -n "$EFI" ]]; then
-  mkfs.fat -F32 "$EFI"
+  mkfs.fat -F32 "$EFI" &>/dev/null
   mkdir -p /mnt/boot
   mount "$EFI" /mnt/boot
 fi
 
-SWAP=$(whiptail --backtitle "$BACKTITLE" \
-  --title "Swap Partition" \
-  --inputbox "Specify your swap partition (leave empty if none):" 10 60 \
-  3>&1 1>&2 2>&3)
+SWAP=$(whiptail --backtitle "$BACKTITLE" --title "Swap Partition" \
+  --inputbox "Swap partition (leave empty if none):" 10 50 \
+  3>&1 1>&2 2>&3) || exit 1
 if [[ -n "$SWAP" ]]; then
-  mkswap "$SWAP"
+  mkswap "$SWAP" &>/dev/null
   swapon "$SWAP"
 fi
 
-# 6️⃣ Install base system
-whiptail --backtitle "$BACKTITLE" \
-  --title "Pacstrap" \
-  --msgbox "Installing base packages..." 8 60
-pacstrap /mnt base base-devel linux linux-firmware --noconfirm --needed
+# Step 8: Install base system
+whiptail --backtitle "$BACKTITLE" --title "Installing Base System" \
+  --gauge "Running pacstrap..." 6 50 10
+pacstrap /mnt base base-devel linux linux-firmware --noconfirm --needed &>/dev/null
 
-# 7️⃣ Generate fstab
-whiptail --backtitle "$BACKTITLE" \
-  --title "Generating fstab" \
-  --msgbox "Creating /etc/fstab…" 8 60
+# Step 9: Generate fstab
+whiptail --backtitle "$BACKTITLE" --title "Generating fstab" \
+  --msgbox "Creating fstab…" 6 50
 genfstab -U /mnt >> /mnt/etc/fstab
 
-# 8️⃣ Chroot configuration
+# Step 10: Chroot configuration
 arch-chroot /mnt /bin/bash <<'EOF'
 set -euo pipefail
-trap 'echo "✖ Error in chroot on line $LINENO"; exit 1' ERR
+trap 'whiptail --msgbox "✖ Chroot error on line $LINENO" 8 40; exit 1' ERR
 
-# Backtitle inside chroot
-BACKTITLE="Arch Linux Installer — Chroot"
+BACKTITLE="Arch Installer — Chroot"
 
-# 8.1 Locale
-LOCALE=$(whiptail --backtitle "$BACKTITLE" \
-  --title "Locale" \
-  --inputbox "Enter your locale (e.g., en_US.UTF-8 ru_RU.UTF-8):" 10 60 \
-  en_US.UTF-8 3>&1 1>&2 2>&3)
+# Locale
+LOCALE=$(whiptail --backtitle "$BACKTITLE" --title "Locale" \
+  --inputbox "Enter locale (e.g., en_US.UTF-8 ru_RU.UTF-8):" 10 50 en_US.UTF-8 \
+  3>&1 1>&2 2>&3) || exit 1
 echo "$LOCALE UTF-8" >> /etc/locale.gen
-locale-gen
+locale-gen &>/dev/null
 echo "LANG=$LOCALE" > /etc/locale.conf
 
-# 8.2 Time zone
-TZ=$(whiptail --backtitle "$BACKTITLE" \
-  --title "Time Zone" \
-  --inputbox "Enter your time zone (e.g., Europe/Minsk):" 10 60 \
-  Europe/Minsk 3>&1 1>&2 2>&3)
+# Time zone
+TZ=$(whiptail --backtitle "$BACKTITLE" --title "Time Zone" \
+  --inputbox "Enter time zone (e.g., Europe/Minsk):" 10 50 Europe/Minsk \
+  3>&1 1>&2 2>&3) || exit 1
 ln -sf /usr/share/zoneinfo/"$TZ" /etc/localtime
-hwclock --systohc
+hwclock --systohc &>/dev/null
 
-# 8.3 Hostname & hosts
-HOSTNAME=$(whiptail --backtitle "$BACKTITLE" \
-  --title "Hostname" \
-  --inputbox "Enter the hostname for this machine:" 10 60 \
-  archlinux 3>&1 1>&2 2>&3)
+# Hostname
+HOSTNAME=$(whiptail --backtitle "$BACKTITLE" --title "Hostname" \
+  --inputbox "Enter hostname:" 10 50 archlinux \
+  3>&1 1>&2 2>&3) || exit 1
 echo "$HOSTNAME" > /etc/hostname
 cat >> /etc/hosts <<EOD
 127.0.0.1   localhost
@@ -173,49 +161,43 @@ cat >> /etc/hosts <<EOD
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 EOD
 
-# 8.4 Root password
-PASS_ROOT=$(whiptail --backtitle "$BACKTITLE" \
-  --title "Root Password" \
-  --passwordbox "Set the root password:" 10 60 \
-  3>&1 1>&2 2>&3)
+# Root password
+PASS_ROOT=$(whiptail --backtitle "$BACKTITLE" --title "Root Password" \
+  --passwordbox "Set root password:" 10 50 \
+  3>&1 1>&2 2>&3) || exit 1
 echo "root:$PASS_ROOT" | chpasswd
 
-# 8.5 Create a new user
-if whiptail --backtitle "$BACKTITLE" \
-     --title "Add User" \
-     --yesno "Would you like to create a new user?" 10 60; then
+# Create user
+if whiptail --backtitle "$BACKTITLE" --title "Add User" \
+     --yesno "Create a non-root user?" 10 50; then
 
-  USERNAME=$(whiptail --backtitle "$BACKTITLE" \
-    --title "Username" \
-    --inputbox "Enter a username:" 10 60 user \
-    3>&1 1>&2 2>&3)
-  useradd -m -G wheel,storage,power -s /bin/bash "$USERNAME"
+  USER=$(whiptail --backtitle "$BACKTITLE" --title "Username" \
+    --inputbox "Enter username:" 10 50 user \
+    3>&1 1>&2 2>&3) || exit 1
+  useradd -m -G wheel,storage,power -s /bin/bash "$USER"
 
-  PASS_USER=$(whiptail --backtitle "$BACKTITLE" \
-    --title "User Password" \
-    --passwordbox "Set password for $USERNAME:" 10 60 \
-    3>&1 1>&2 2>&3)
-  echo "$USERNAME:$PASS_USER" | chpasswd
+  PASS_USER=$(whiptail --backtitle "$BACKTITLE" --title "User Password" \
+    --passwordbox "Set password for $USER:" 10 50 \
+    3>&1 1>&2 2>&3) || exit 1
+  echo "$USER:$PASS_USER" | chpasswd
 
   sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 fi
 
-# 8.6 Install GRUB
+# Install GRUB
 if [[ -d /sys/firmware/efi ]]; then
-  pacman -Sy --noconfirm grub efibootmgr
+  pacman -Sy --noconfirm grub efibootmgr &>/dev/null
   grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 else
-  pacman -Sy --noconfirm grub
+  pacman -Sy --noconfirm grub &>/dev/null
   grub-install --target=i386-pc /dev/sda
 fi
-grub-mkconfig -o /boot/grub/grub.cfg
+grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
 
 EOF
 
-# 🎉 Finished
-whiptail --backtitle "$BACKTITLE" \
-  --title "Done!" \
-  --msgbox "Installation complete!\nReboot and remove the installation media." 10 60
+# Finish
+whiptail --backtitle "$BACKTITLE" --title "Done!" \
+  --msgbox "Installation complete!\nReboot and remove the installation media." 10 50
 
 exit 0
-```
