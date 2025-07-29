@@ -2,104 +2,112 @@
 set -euo pipefail
 
 # ┌─────────────────────────────────────────────────────────────────┐
-# │         ARCH INSTALL — FAST KDE + EFI + GDM (AUTOMATIC)        │
+# │             ARCH AUTO-INSTALL — KDE + EFI + GDM               │
 # └─────────────────────────────────────────────────────────────────┘
 
-# 💬 Настройки
+#  Settings ────────────────────────────────────────────────────────
 DISK="/dev/sda"
-USER="archuser"
-PASS="123123"
-HOST="archkde"
+HOSTNAME="archkde"
+USERNAME="archuser"
+PASSWORD="archlinux"
+TIMEZONE="Europe/Minsk"
 LOCALE="en_US.UTF-8"
 KEYMAP="ru"
-LAYOUT="us,ru"
-TOGGLE="grp:alt_shift_toggle"
-TIMEZONE="Europe/Minsk"
+XKB_LAYOUTS="us,ru"
+XKB_OPTIONS="grp:alt_shift_toggle"
+EFI_SIZE="512MiB"
+SWAP_SIZE="1GiB"
 
-# 🧠 Проверка
-[[ "$EUID" -ne 0 ]] && { echo "🚫 Run as root"; exit 1; }
-ping -c1 archlinux.org &>/dev/null || { echo "❌ No internet"; exit 1; }
+#  Pre-flight checks ───────────────────────────────────────────────
+[[ $EUID -ne 0 ]] && { echo "Run this script as root"; exit 1; }
+ping -c1 archlinux.org &>/dev/null || { echo "No internet connection"; exit 1; }
 
-# 🔧 Разметка: EFI, ROOT, SWAP
+#  1) Partitioning ────────────────────────────────────────────────
 parted "$DISK" --script mklabel gpt
-parted "$DISK" --script mkpart ESP fat32 1MiB 513MiB
+parted "$DISK" --script mkpart ESP fat32 1MiB $EFI_SIZE
 parted "$DISK" --script set 1 esp on
-parted "$DISK" --script mkpart primary ext4 513MiB 24GiB
-parted "$DISK" --script mkpart primary linux-swap 24GiB 100%
+parted "$DISK" --script mkpart primary ext4 $EFI_SIZE "-$SWAP_SIZE"
+parted "$DISK" --script mkpart primary linux-swap "-$SWAP_SIZE" 100%
+
+#  2) Format & mount ─────────────────────────────────────────────
 mkfs.fat -F32 "${DISK}1"
-mkfs.ext4 "${DISK}2"
-mkswap "${DISK}3"
-mount "${DISK}2" /mnt
-swapon "${DISK}3"
-mkdir -p /mnt/boot
-mount "${DISK}1" /mnt/boot
+mkfs.ext4   "${DISK}2"
+mkswap      "${DISK}3"
+mount       "${DISK}2" /mnt
+swapon      "${DISK}3"
+mkdir -p    /mnt/boot
+mount       "${DISK}1" /mnt/boot
 
-# 🧱 Базовая система
-pacstrap /mnt base base-devel linux linux-firmware vim sudo networkmanager grub efibootmgr xorg
+#  3) Base system install ────────────────────────────────────────
+pacstrap /mnt \
+  base linux linux-firmware sudo nano vim networkmanager \
+  grub efibootmgr xorg plasma kde-applications gdm
 
-# 📄 fstab
+#  4) fstab ──────────────────────────────────────────────────────
 genfstab -U /mnt >> /mnt/etc/fstab
 
-# 🔍 Конфигурация внутри chroot
+#  5) Configure in chroot ───────────────────────────────────────
 arch-chroot /mnt /bin/bash <<EOF
 set -euo pipefail
 
-# 🗣️ Локаль
+# Time zone
+ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+hwclock --systohc
+
+# Locale
 echo "$LOCALE UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=$LOCALE" > /etc/locale.conf
 
-# ⌨️ Консоль
+# Console keymap
 echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
 
-# 🌐 Время
-ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
-hwclock --systohc
+# Hostname & hosts
+echo "$HOSTNAME" > /etc/hostname
+cat >> /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
+HOSTS
 
-# 🖥️ Хост
-echo "$HOST" > /etc/hostname
-cat >> /etc/hosts <<HOSTS_EOF
-127.0.0.1 localhost
-::1       localhost
-127.0.1.1 $HOST.localdomain $HOST
-HOSTS_EOF
+# Root password
+echo "root:$PASSWORD" | chpasswd
 
-# 🔐 root пароль
-echo "root:$PASS" | chpasswd
-
-# 👤 Пользователь
-useradd -m -G wheel,video -s /bin/bash "$USER"
-echo "$USER:$PASS" | chpasswd
+# Create user & grant sudo
+useradd -m -G wheel,video,audio,storage,network -s /bin/bash "$USERNAME"
+echo "$USERNAME:$PASSWORD" | chpasswd
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# 📡 NetworkManager
+# Enable NetworkManager
 systemctl enable NetworkManager
 
-# 🎮 NVIDIA (если есть)
-if lspci | grep -i nvidia; then
-  pacman -Sy --noconfirm nvidia nvidia-utils nvidia-settings
-  echo "nvidia" > /etc/modules-load.d/nvidia.conf
-fi
-
-# 🌐 X11 раскладки
+# X11 keyboard layouts
 mkdir -p /etc/X11/xorg.conf.d
-cat > /etc/X11/xorg.conf.d/00-keyboard.conf <<XKB_EOF
+cat > /etc/X11/xorg.conf.d/00-keyboard.conf <<XKB
 Section "InputClass"
   Identifier "system-keyboard"
   MatchIsKeyboard "on"
-  Option "XkbLayout" "$LAYOUT"
-  Option "XkbOptions" "$TOGGLE"
+  Option "XkbLayout" "$XKB_LAYOUTS"
+  Option "XkbOptions" "$XKB_OPTIONS"
 EndSection
-XKB_EOF
+XKB
 
-# 🖼️ Установка KDE + GDM
-pacman -Sy --noconfirm plasma kde-applications gdm
+# Enable GDM
 systemctl enable gdm
 
-# 🧯 GRUB EFI
+# NVIDIA setup (if present)
+if lspci | grep -i nvidia &>/dev/null; then
+  pacman -Sy --noconfirm nvidia nvidia-utils nvidia-settings
+  echo "nvidia" > /etc/modules-load.d/nvidia.conf
+  mkinitcpio -p linux
+fi
+
+# Install & configure GRUB (UEFI)
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
+
 EOF
 
-# 🏁 Завершение
-echo -e "\n✅ Установка завершена! Перезагрузи и наслаждайся KDE на Arch.\n"
+#  Done ───────────────────────────────────────────────────────────
+echo -e "\nInstallation complete! Reboot and enjoy KDE with GDM on Arch.\n"
+```
