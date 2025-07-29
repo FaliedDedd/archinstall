@@ -38,7 +38,7 @@ while true; do
 done
 
 # Step 2: Ensure helper tools
-for tool in whiptail pacstrap genfstab arch-chroot; do
+for tool in whiptail pacstrap genfstab arch-chroot lsblk; do
   if ! command -v "$tool" &>/dev/null; then
     pacman -Sy --noconfirm "$tool" &>/dev/null
   fi
@@ -86,61 +86,71 @@ whiptail --backtitle "$BACKTITLE" --title "Disk Partitioning" \
   --msgbox "We will open cfdisk. Create at least:\n • root partition\n • (optional) EFI\n • (optional) swap\nThen write changes and exit." 12 60
 cfdisk
 
-# Helper for partition selection with validation
+# Step 6: Helper for partition selection with dynamic menu
 select_partition() {
-  local prompt=$1
-  local part
-  while true; do
-    part=$(whiptail --backtitle "$BACKTITLE" --title "$prompt" \
-      --inputbox "Enter device (e.g., /dev/sda1):" 10 60 \
-      3>&1 1>&2 2>&3) || { echo "cancel"; break; }
-    if [[ -b "$part" ]]; then
-      echo "$part"
-      return 0
-    else
-      whiptail --backtitle "$BACKTITLE" --msgbox \
-        "✖ '$part' not found or not a block device.\nPlease try again." 8 60
+  local prompt="$1"
+  local -a choices=()
+  # Gather all partitions
+  while read -r name size type; do
+    if [[ "$type" == "part" ]]; then
+      choices+=( "/dev/${name}" "${size}" )
     fi
-  done
-  return 1
+  done < <(lsblk -dn -o NAME,SIZE,TYPE)
+
+  if [ "${#choices[@]}" -eq 0 ]; then
+    whiptail --backtitle "$BACKTITLE" \
+      --msgbox "No partitions detected." 8 60
+    return 1
+  fi
+
+  # Show menu
+  local selection
+  selection=$(whiptail --backtitle "$BACKTITLE" \
+    --title "$prompt" \
+    --menu "Select a partition:" 15 60 6 \
+    "${choices[@]}" \
+    3>&1 1>&2 2>&3) || return 1
+
+  echo "$selection"
+  return 0
 }
 
-# Step 6: Format & mount partitions
+# Step 7: Format & mount partitions
 ROOT=$(select_partition "Root Partition") || exit 1
 mkfs.ext4 "$ROOT" &>/dev/null
 mount "$ROOT" /mnt
 
-EFI=$(select_partition "EFI Partition (leave empty to skip)")
-if [[ -n "$EFI" && -b "$EFI" ]]; then
+EFI=$(select_partition "EFI Partition (optional)") || true
+if [[ -n "$EFI" ]]; then
   mkfs.fat -F32 "$EFI" &>/dev/null
   mkdir -p /mnt/boot
   mount "$EFI" /mnt/boot
 fi
 
-SWAP=$(select_partition "Swap Partition (leave empty to skip)")
-if [[ -n "$SWAP" && -b "$SWAP" ]]; then
+SWAP=$(select_partition "Swap Partition (optional)") || true
+if [[ -n "$SWAP" ]]; then
   mkswap "$SWAP" &>/dev/null
   swapon "$SWAP"
 fi
 
-# Step 7: Install Base System
+# Step 8: Install Base System
 whiptail --backtitle "$BACKTITLE" --title "Installing Base" \
   --gauge "Running pacstrap..." 6 60 10
 pacstrap /mnt base base-devel linux linux-firmware --noconfirm --needed &>/dev/null
 
-# Step 8: Generate fstab
+# Step 9: Generate fstab
 whiptail --backtitle "$BACKTITLE" --title "fstab" \
   --msgbox "Generating /etc/fstab…" 6 60
 genfstab -U /mnt >> /mnt/etc/fstab
 
-# Step 9: Chroot Configuration
+# Step 10: Chroot Configuration
 arch-chroot /mnt /bin/bash <<'EOF'
 set -euo pipefail
 trap 'whiptail --msgbox "✖ Chroot error on line $LINENO" 8 60; exit 1' ERR
 
 BACKTITLE="Chroot Setup"
 
-# 9.1 Locale
+# Locale
 LOCALE=$(whiptail --backtitle "$BACKTITLE" --title "Locale" \
   --inputbox "Enter locale (e.g., en_US.UTF-8):" 10 60 en_US.UTF-8 \
   3>&1 1>&2 2>&3) || exit 1
@@ -148,14 +158,14 @@ echo "$LOCALE UTF-8" >> /etc/locale.gen
 locale-gen &>/dev/null
 echo "LANG=$LOCALE" > /etc/locale.conf
 
-# 9.2 Time Zone
+# Time Zone
 TZ=$(whiptail --backtitle "$BACKTITLE" --title "Time Zone" \
   --inputbox "Enter time zone (e.g., Europe/Minsk):" 10 60 Europe/Minsk \
   3>&1 1>&2 2>&3) || exit 1
 ln -sf /usr/share/zoneinfo/"$TZ" /etc/localtime
 hwclock --systohc &>/dev/null
 
-# 9.3 Hostname
+# Hostname
 HOSTNAME=$(whiptail --backtitle "$BACKTITLE" --title "Hostname" \
   --inputbox "Enter hostname:" 10 60 archlinux \
   3>&1 1>&2 2>&3) || exit 1
@@ -166,13 +176,13 @@ cat >> /etc/hosts <<EOD
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 EOD
 
-# 9.4 Root Password
+# Root Password
 PASS_ROOT=$(whiptail --backtitle "$BACKTITLE" --title "Root Password" \
   --passwordbox "Set root password:" 10 60 \
   3>&1 1>&2 2>&3) || exit 1
 echo "root:$PASS_ROOT" | chpasswd
 
-# 9.5 Create User
+# Create User
 if whiptail --backtitle "$BACKTITLE" --title "Add User" \
      --yesno "Create a non-root user?" 10 60; then
 
@@ -189,7 +199,7 @@ if whiptail --backtitle "$BACKTITLE" --title "Add User" \
   sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 fi
 
-# 9.6 Install GRUB
+# Install GRUB
 if [[ -d /sys/firmware/efi ]]; then
   pacman -Sy --noconfirm grub efibootmgr &>/dev/null
   grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
@@ -201,7 +211,7 @@ grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
 
 EOF
 
-# Step 10: Finish
+# Step 11: Finish
 whiptail --backtitle "$BACKTITLE" --title "Done!" \
   --msgbox "Installation complete!\nReboot and remove installation media." 8 60
 
