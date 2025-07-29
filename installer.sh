@@ -8,8 +8,8 @@ set -euo pipefail
 #  Settings ────────────────────────────────────────────────────────
 DISK="/dev/nvme0n1"
 HOSTNAME="archkde"
-USERNAME="archuser"
-PASSWORD="archlinux"
+USERNAME="falied"
+PASSWORD="108660"
 TIMEZONE="Europe/Minsk"
 LOCALE="en_US.UTF-8"
 KEYMAP="us"
