@@ -1,95 +1,105 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# === Настройки ===
-USERNAME="archuser"
-PASSWORD="123123"
+# ┌─────────────────────────────────────────────────────────────────┐
+# │         ARCH INSTALL — FAST KDE + EFI + GDM (AUTOMATIC)        │
+# └─────────────────────────────────────────────────────────────────┘
+
+# 💬 Настройки
 DISK="/dev/sda"
-HOSTNAME="archlinux"
+USER="archuser"
+PASS="123123"
+HOST="archkde"
 LOCALE="en_US.UTF-8"
 KEYMAP="ru"
+LAYOUT="us,ru"
+TOGGLE="grp:alt_shift_toggle"
 TIMEZONE="Europe/Minsk"
-BACKTITLE="Arch KDE Auto Installer"
 
-# === Проверка ===
-[[ $EUID -ne 0 ]] && { echo "❌ Скрипт нужно запускать от root"; exit 1; }
-ping -c1 archlinux.org &>/dev/null || { echo "❌ Нет подключения к интернету"; exit 1; }
+# 🧠 Проверка
+[[ "$EUID" -ne 0 ]] && { echo "🚫 Run as root"; exit 1; }
+ping -c1 archlinux.org &>/dev/null || { echo "❌ No internet"; exit 1; }
 
-# === Разметка диска (/dev/sda: ~24ГБ + 1ГБ swap) ===
-parted "$DISK" --script mklabel msdos
-parted "$DISK" --script mkpart primary ext4 1MiB 24GiB
+# 🔧 Разметка: EFI, ROOT, SWAP
+parted "$DISK" --script mklabel gpt
+parted "$DISK" --script mkpart ESP fat32 1MiB 513MiB
+parted "$DISK" --script set 1 esp on
+parted "$DISK" --script mkpart primary ext4 513MiB 24GiB
 parted "$DISK" --script mkpart primary linux-swap 24GiB 100%
-mkfs.ext4 "${DISK}1"
-mkswap "${DISK}2"
-swapon "${DISK}2"
-mount "${DISK}1" /mnt
+mkfs.fat -F32 "${DISK}1"
+mkfs.ext4 "${DISK}2"
+mkswap "${DISK}3"
+mount "${DISK}2" /mnt
+swapon "${DISK}3"
+mkdir -p /mnt/boot
+mount "${DISK}1" /mnt/boot
 
-# === Установка системы ===
-pacstrap /mnt base base-devel linux linux-firmware sudo vim nano git networkmanager grub xorg
+# 🧱 Базовая система
+pacstrap /mnt base base-devel linux linux-firmware vim sudo networkmanager grub efibootmgr xorg
 
-# === fstab ===
+# 📄 fstab
 genfstab -U /mnt >> /mnt/etc/fstab
 
-# === Конфигурация в chroot ===
+# 🔍 Конфигурация внутри chroot
 arch-chroot /mnt /bin/bash <<EOF
 set -euo pipefail
 
-# Локаль
+# 🗣️ Локаль
 echo "$LOCALE UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=$LOCALE" > /etc/locale.conf
 
-# Часовой пояс
+# ⌨️ Консоль
+echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
+
+# 🌐 Время
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
 
-# Имя хоста
-echo "$HOSTNAME" > /etc/hostname
+# 🖥️ Хост
+echo "$HOST" > /etc/hostname
 cat >> /etc/hosts <<HOSTS_EOF
 127.0.0.1 localhost
 ::1       localhost
-127.0.1.1 $HOSTNAME.localdomain $HOSTNAME
+127.0.1.1 $HOST.localdomain $HOST
 HOSTS_EOF
 
-# Клавиатура в консоли
-echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
+# 🔐 root пароль
+echo "root:$PASS" | chpasswd
 
-# root пароль
-echo "root:$PASSWORD" | chpasswd
-
-# Создание пользователя
-useradd -m -G wheel,video,network -s /bin/bash "$USERNAME"
-echo "$USERNAME:$PASSWORD" | chpasswd
+# 👤 Пользователь
+useradd -m -G wheel,video -s /bin/bash "$USER"
+echo "$USER:$PASS" | chpasswd
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# === Язык и раскладки в X11 ===
-mkdir -p /etc/X11/xorg.conf.d
-cat > /etc/X11/xorg.conf.d/00-keyboard.conf <<XKB_EOF
-Section "InputClass"
-  Identifier "system-keyboard"
-  MatchIsKeyboard "on"
-  Option "XkbLayout" "us,ru"
-  Option "XkbOptions" "grp:alt_shift_toggle"
-EndSection
-XKB_EOF
-
-# === Wi-Fi ===
+# 📡 NetworkManager
 systemctl enable NetworkManager
 
-# === KDE Plasma + GUI ===
-pacman -Sy --noconfirm plasma kde-applications sddm konsole dolphin ark
-systemctl enable sddm
-
-# === NVIDIA ===
+# 🎮 NVIDIA (если есть)
 if lspci | grep -i nvidia; then
   pacman -Sy --noconfirm nvidia nvidia-utils nvidia-settings
   echo "nvidia" > /etc/modules-load.d/nvidia.conf
 fi
 
-# === Bootloader ===
-grub-install --target=i386-pc "$DISK"
+# 🌐 X11 раскладки
+mkdir -p /etc/X11/xorg.conf.d
+cat > /etc/X11/xorg.conf.d/00-keyboard.conf <<XKB_EOF
+Section "InputClass"
+  Identifier "system-keyboard"
+  MatchIsKeyboard "on"
+  Option "XkbLayout" "$LAYOUT"
+  Option "XkbOptions" "$TOGGLE"
+EndSection
+XKB_EOF
+
+# 🖼️ Установка KDE + GDM
+pacman -Sy --noconfirm plasma kde-applications gdm
+systemctl enable gdm
+
+# 🧯 GRUB EFI
+grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
-# === Завершение ===
-echo "✅ Установка завершена. Перезагрузись и наслаждайся!"
+# 🏁 Завершение
+echo -e "\n✅ Установка завершена! Перезагрузи и наслаждайся KDE на Arch.\n"
