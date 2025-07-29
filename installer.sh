@@ -3,7 +3,7 @@ set -euo pipefail
 
 # === Настройки ===
 USERNAME="archuser"
-PASSWORD="archlinux"
+PASSWORD="123123"
 DISK="/dev/sda"
 HOSTNAME="archlinux"
 LOCALE="en_US.UTF-8"
