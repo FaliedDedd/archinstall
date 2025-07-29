@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Trap errors and report line
-trap 'whiptail --backtitle "$BACKTITLE" --msgbox "✖ Error on line $LINENO" 8 60; exit 1' ERR
+# Report errors with line number
+trap 'whiptail --backtitle "$BACKTITLE" \
+      --msgbox "✖ Error on line $LINENO" 8 60; exit 1' ERR
 
 # ┌─────────────────────────────────────────────────────────┐
 # │        ARCH LINUX INSTALLER — SIMPLE EDITION          │
@@ -26,10 +27,11 @@ sleep 1
 
 BACKTITLE="Arch Installer"
 
-# Step 1: Check for Internet
+# Step 1: Check Internet
 while true; do
   if ping -c1 8.8.8.8 &>/dev/null; then
-    whiptail --backtitle "$BACKTITLE" --msgbox "✓ Internet connection detected." 8 60
+    whiptail --backtitle "$BACKTITLE" --msgbox \
+      "✓ Internet connection detected." 8 60
     break
   else
     whiptail --backtitle "$BACKTITLE" \
@@ -37,8 +39,8 @@ while true; do
   fi
 done
 
-# Step 2: Ensure helper tools
-for tool in whiptail pacstrap genfstab arch-chroot lsblk parted; do
+# Step 2: Ensure required tools
+for tool in whiptail pacstrap genfstab arch-chroot lsblk parted udevadm; do
   if ! command -v "$tool" &>/dev/null; then
     pacman -Sy --noconfirm "$tool" &>/dev/null
   fi
@@ -51,19 +53,19 @@ KEYMAP=$(whiptail --backtitle "$BACKTITLE" --title "Keyboard Layout" \
 KEYMAP=${KEYMAP:-us}
 if ! loadkeys "$KEYMAP" &>/dev/null; then
   whiptail --backtitle "$BACKTITLE" --msgbox \
-    "Cannot load '$KEYMAP'. Using 'us' instead." 8 60
+    "Cannot load '$KEYMAP'. Falling back to 'us'." 8 60
   loadkeys us &>/dev/null
   KEYMAP=us
 fi
 
-# Step 4: Network Setup
+# Step 4: Network setup
 if whiptail --backtitle "$BACKTITLE" --title "Network" \
      --yesno "Use Wi-Fi? (Yes) or Ethernet? (No)" 8 60; then
 
   systemctl start iwd &>/dev/null
 
   WDEV=$(whiptail --backtitle "$BACKTITLE" --title "Wi-Fi Interface" \
-    --inputbox "Enter Wi-Fi interface (e.g., wlan0):" 10 60 wlan0 \
+    --inputbox "Enter wireless interface name:" 10 60 wlan0 \
     3>&1 1>&2 2>&3) || exit 1
 
   SSID=$(whiptail --backtitle "$BACKTITLE" --title "SSID" \
@@ -71,7 +73,7 @@ if whiptail --backtitle "$BACKTITLE" --title "Network" \
     3>&1 1>&2 2>&3) || exit 1
 
   PSK=$(whiptail --backtitle "$BACKTITLE" --title "Password" \
-    --passwordbox "Enter password for '$SSID':" 10 60 \
+    --passwordbox "Enter Wi-Fi password for '$SSID':" 10 60 \
     3>&1 1>&2 2>&3) || exit 1
 
   iwctl station "$WDEV" scan &>/dev/null
@@ -81,36 +83,48 @@ else
   systemctl start dhcpcd &>/dev/null
 fi
 
-# Step 5: Disk Partitioning
-whiptail --backtitle "$BACKTITLE" --title "Disk Partitioning" \
-  --msgbox "We will open cfdisk:\n • Create root\n • (opt.) EFI\n • (opt.) swap\nWrite changes and exit." 12 60
-cfdisk
+# Step 5: Partitioning loop
+while true; do
+  whiptail --backtitle "$BACKTITLE" --title "Disk Partitioning" \
+    --msgbox "Now running cfdisk:\n • Create a root partition\n • (opt.) EFI\n • (opt.) swap\nWrite the changes, then exit." 12 60
+  cfdisk
 
-# Re-read partition table so lsblk sees new partitions
-# Identify all disk devices and probe them
-for disk in $(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/" $1}'); do
-  partprobe "$disk" || true
-done
-udevadm settle --timeout=5
+  # Re-read partition table
+  for disk in $(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/" $1}'); do
+    partprobe "$disk" || true
+  done
+  udevadm settle --timeout=5
 
-# Step 6: Helper for partition selection with dynamic menu
-select_partition() {
-  local prompt="$1" choices=() name size type
-  while read -r name size type; do
-    [[ "$type" == "part" ]] && choices+=( "/dev/${name}" "${size}" )
-  done < <(lsblk -dn -o NAME,SIZE,TYPE)
-
-  if [ "${#choices[@]}" -eq 0 ]; then
-    whiptail --backtitle "$BACKTITLE" --msgbox "No partitions detected." 8 60
-    return 1
+  # Check if any partitions exist
+  if lsblk -pn -o NAME,TYPE | grep -q 'part$'; then
+    break
   fi
 
-  whiptail --backtitle "$BACKTITLE" --title "$prompt" \
-    --menu "Select a partition:" 15 60 6 \
-    "${choices[@]}" 3>&1 1>&2 2>&3
+  # If still no partitions, retry or exit
+  if ! whiptail --backtitle "$BACKTITLE" \
+       --yesno "No partitions found.\nRe-run cfdisk?" 8 60; then
+    exit 1
+  fi
+done
+
+# Step 6: Partition selector
+select_partition() {
+  local prompt="$1"
+  local opts=()
+  while read -r dev type; do
+    [[ "$type" == "part" ]] && \
+      opts+=( "$dev" "$(lsblk -n -o SIZE "$dev")" )
+  done < <(lsblk -pn -o NAME,TYPE)
+
+  [[ ${#opts[@]} -gt 0 ]] || return 1
+
+  whiptail --backtitle "$BACKTITLE" \
+    --title "$prompt" \
+    --menu "Select partition:" 15 60 6 \
+    "${opts[@]}" 3>&1 1>&2 2>&3
 }
 
-# Step 7: Format & mount partitions
+# Step 7: Format & mount
 ROOT=$(select_partition "Root Partition") || exit 1
 mkfs.ext4 "$ROOT" &>/dev/null
 mount "$ROOT" /mnt
@@ -128,17 +142,17 @@ if [[ -n "$SWAP" ]]; then
   swapon "$SWAP"
 fi
 
-# Step 8: Install Base System
+# Step 8: Install base system
 whiptail --backtitle "$BACKTITLE" --title "Installing Base" \
-  --gauge "Running pacstrap..." 6 60 10
+  --gauge "Running pacstrap..." 6 60 0
 pacstrap /mnt base base-devel linux linux-firmware --noconfirm --needed &>/dev/null
 
 # Step 9: Generate fstab
 whiptail --backtitle "$BACKTITLE" --title "fstab" \
-  --msgbox "Generating /etc/fstab…" 6 60
+  --msgbox "Generating fstab file…" 6 60
 genfstab -U /mnt >> /mnt/etc/fstab
 
-# Step 10: Chroot Configuration
+# Step 10: Chroot & configure
 arch-chroot /mnt /bin/bash <<'EOF'
 set -euo pipefail
 trap 'whiptail --msgbox "✖ Chroot error on line $LINENO" 8 60; exit 1' ERR
@@ -153,7 +167,7 @@ echo "$LOCALE UTF-8" >> /etc/locale.gen
 locale-gen &>/dev/null
 echo "LANG=$LOCALE" > /etc/locale.conf
 
-# Time Zone
+# Time zone
 TZ=$(whiptail --backtitle "$BACKTITLE" --title "Time Zone" \
   --inputbox "Enter time zone (e.g., Europe/Minsk):" 10 60 Europe/Minsk \
   3>&1 1>&2 2>&3) || exit 1
@@ -171,13 +185,13 @@ cat >> /etc/hosts <<EOD
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 EOD
 
-# Root Password
+# Root password
 PASS_ROOT=$(whiptail --backtitle "$BACKTITLE" --title "Root Password" \
   --passwordbox "Set root password:" 10 60 \
   3>&1 1>&2 2>&3) || exit 1
 echo "root:$PASS_ROOT" | chpasswd
 
-# Create User
+# Add a non-root user
 if whiptail --backtitle "$BACKTITLE" --title "Add User" \
      --yesno "Create a non-root user?" 10 60; then
 
@@ -194,7 +208,7 @@ if whiptail --backtitle "$BACKTITLE" --title "Add User" \
   sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 fi
 
-# Install GRUB
+# Install and configure GRUB
 if [[ -d /sys/firmware/efi ]]; then
   pacman -Sy --noconfirm grub efibootmgr &>/dev/null
   grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
@@ -208,7 +222,7 @@ EOF
 
 # Step 11: Finish
 whiptail --backtitle "$BACKTITLE" --title "Done!" \
-  --msgbox "Installation complete!\nReboot and remove installation media." 8 60
+  --msgbox "Installation complete!\nPlease reboot and remove installation media." 8 60
 
 exit 0
 ```
