@@ -43,7 +43,7 @@ mount       "${DISK}p1" /mnt/boot
 #  3) Base system install ────────────────────────────────────────
 pacstrap /mnt \
   base linux linux-firmware sudo nano vim networkmanager \
-  xorg plasma kde-applications grub efibootmgr gdm
+  xorg hyprland waybar swaybg swaylock-effects grub efibootmgr gdm
 
 #  4) fstab ──────────────────────────────────────────────────────
 genfstab -U /mnt >> /mnt/etc/fstab
