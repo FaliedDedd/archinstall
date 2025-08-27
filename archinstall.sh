@@ -1,202 +1,134 @@
 #!/usr/bin/env bash
-# Полуграфический инсталлятор Arch Linux с Wi-Fi и KDE
 set -euo pipefail
-set -x
 
-# Проверка прав
-if [[ $EUID -ne 0 ]]; then
-  echo "Скрипт нужно запускать от root."
-  exit 1
+# ┌─────────────────────────────────────────────────────────────────┐
+# │             ARCH AUTO-INSTALL — GNOME + BIOS + GDM              │
+# └─────────────────────────────────────────────────────────────────┘
+
+#  Settings ────────────────────────────────────────────────────────
+DISK="/dev/sda"
+HOSTNAME="archgnome"
+USERNAME="f"
+PASSWORD="10"
+TIMEZONE="Europe/Minsk"
+LOCALE="en_US.UTF-8"
+KEYMAP="us"
+XKB_LAYOUTS="us,ru"
+XKB_OPTIONS="grp:alt_shift_toggle"
+SWAP_SIZE="9G"
+
+#  Pre-flight checks ───────────────────────────────────────────────
+[[ $EUID -ne 0 ]] && { echo "Run this script as root"; exit 1; }
+ping -c1 archlinux.org &>/dev/null || { echo "No internet connection"; exit 1; }
+
+# Проверяем, что это BIOS система
+if [[ -d /sys/firmware/efi ]]; then
+    echo "ERROR: This system uses UEFI, but script is configured for BIOS!"
+    echo "Please use the UEFI version of the script."
+    exit 1
 fi
 
-# Установка необходимых утилит для интерфейса
-pacman -Sy dialog whiptail os-prober grub efibootmgr --needed
+#  1) Partitioning ────────────────────────────────────────────────
+# Wipe existing partitions, create MBR and two partitions: root and swap
+echo "Creating MBR partition table..."
+parted -s "$DISK" mklabel msdos
+parted -s "$DISK" mkpart primary ext4 1MiB -${SWAP_SIZE}
+parted -s "$DISK" mkpart primary linux-swap -${SWAP_SIZE} 100%
+parted -s "$DISK" set 1 boot on
+partprobe "$DISK"
 
-#
-# 1) Клавиатурная раскладка
-#
-KEYMAP=$(whiptail --title "Клавиатурная раскладка" \
-  --inputbox "Введите код раскладки (например, ru, us):" 10 60 ru 3>&1 1>&2 2>&3)
+#  2) Format & mount ─────────────────────────────────────────────
+echo "Formatting partitions..."
+mkfs.ext4 "${DISK}1"
+mkswap    "${DISK}2"
+swapon    "${DISK}2"
 
-if [[ -z "$KEYMAP" ]]; then
-  KEYMAP=us
-fi
-loadkeys "$KEYMAP"
+mount     "${DISK}1" /mnt
 
-#
-# 2) Язык интерфейса
-#
-LANG_CHOICE=$(whiptail --title "Язык интерфейса" --menu "Выберите язык:" 12 50 2 \
-  ru_RU.UTF-8 "Русский" \
-  en_US.UTF-8 "English" \
-  3>&1 1>&2 2>&3)
+#  3) Base system install ────────────────────────────────────────
+echo "Installing base system..."
+pacstrap /mnt \
+  base linux linux-firmware sudo nano vim networkmanager \
+  xorg gnome gnome-extra firefox grub gdm
 
-case "$LANG_CHOICE" in
-  ru_RU.UTF-8) export LANG=ru_RU.UTF-8 ;;
-  *)           export LANG=en_US.UTF-8 ;;
-esac
-
-#
-# 3) Сеть: выбор Wi-Fi или провод
-#
-if whiptail --title "Сеть" --yesno "Подключиться по Wi-Fi вместо провода?" 10 60; then
-  pacman -Sy wpa_supplicant networkmanager --needed
-  systemctl enable NetworkManager
-
-  # Автовыбор беспроводного интерфейса
-  mapfile -t IFACES < <(ls /sys/class/net | grep -E '^wl|^wi')
-  DEFAULT_IFACE=${IFACES[0]:-wlan0}
-
-  IFACE=$(whiptail --title "Wi-Fi интерфейс" \
-    --inputbox "Введите беспроводной интерфейс:" 10 60 "$DEFAULT_IFACE" \
-    3>&1 1>&2 2>&3)
-
-  SSID=$(whiptail --title "Wi-Fi SSID" \
-    --inputbox "Имя Wi-Fi сети:" 10 60 3>&1 1>&2 2>&3)
-
-  PASS=$(whiptail --title "Wi-Fi пароль" \
-    --passwordbox "Пароль от сети $SSID:" 10 60 3>&1 1>&2 2>&3)
-
-  nmcli device wifi connect "$SSID" password "$PASS" ifname "$IFACE"
-else
-  pacman -Sy networkmanager --needed
-  systemctl enable NetworkManager
-fi
-
-#
-# 4) Выбор диска
-#
-DISKS=()
-while read -r line; do
-  DISKS+=("$line")
-done < <(lsblk -dpno NAME,SIZE,MODEL | awk '{$1=$1; print}')
-
-DISK=$(whiptail --title "Выбор диска" \
-  --menu "Куда устанавливать Arch?" 20 60 10 \
-  "${DISKS[@]}" \
-  3>&1 1>&2 2>&3)
-
-[ $? -eq 0 ] || { whiptail --msgbox "Установка отменена." 8 40; exit 1; }
-
-#
-# 5) Учетная запись
-#
-USERNAME=$(whiptail --title "Имя пользователя" \
-  --inputbox "Введите имя нового пользователя:" 10 60 3>&1 1>&2 2>&3)
-
-PASSWORD=$(whiptail --title "Пароль" \
-  --passwordbox "Введите пароль для $USERNAME (он же станет паролем для root и sudo):" 10 60 3>&1 1>&2 2>&3)
-
-PASSWORD2=$(whiptail --title "Подтверждение пароля" \
-  --passwordbox "Повторите пароль:" 10 60 3>&1 1>&2 2>&3)
-
-if [[ "$PASSWORD" != "$PASSWORD2" ]]; then
-  whiptail --msgbox "Пароли не совпадают. Перезапустите скрипт." 8 40
-  exit 1
-fi
-
-#
-# 6) NVIDIA-драйверы
-#
-INSTALL_NVIDIA=false
-if whiptail --title "NVIDIA" --yesno "Установить драйверы NVIDIA?" 10 60; then
-  INSTALL_NVIDIA=true
-fi
-
-#
-# 7) Подтверждение параметров
-#
-USE_WIFI=$(nmcli -t -f GENERAL.STATE device status | grep wlan | grep -q connected && echo "да" || echo "нет")
-SUMMARY="Язык: $LANG_CHOICE
-Клавиатура: $KEYMAP
-Диск: $DISK
-Пользователь/пароль: $USERNAME
-Wi-Fi подключен: $USE_WIFI
-NVIDIA-драйверы: $INSTALL_NVIDIA"
-
-whiptail --title "Параметры установки" --msgbox "$SUMMARY" 15 60
-
-#
-# 8) Разметка и монтирование
-#
-sgdisk --zap-all "$DISK"
-sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI Boot" "$DISK"
-sgdisk -n 2:0:0     -t 2:8300 -c 2:"Linux Root" "$DISK"
-
-BOOT_PART="${DISK}1"
-ROOT_PART="${DISK}2"
-
-mkfs.fat -F32 "$BOOT_PART"
-mkfs.ext4 "$ROOT_PART"
-
-mount "$ROOT_PART" /mnt
-mkdir -p /mnt/boot
-mount "$BOOT_PART" /mnt/boot
-
-#
-# 9) Установка базовой системы и KDE
-#
-PKGS=(
-  base linux linux-firmware sudo
-  nano vim git
-  plasma sddm kde-applications
-  networkmanager os-prober efibootmgr
-)
-
-if $INSTALL_NVIDIA; then
-  PKGS+=(nvidia nvidia-utils)
-fi
-
-pacstrap /mnt "${PKGS[@]}"
-
+#  4) fstab ──────────────────────────────────────────────────────
+echo "Generating fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 
-#
-# 10) Настройка в chroot
-#
+#  5) Configure in chroot ───────────────────────────────────────
+echo "Configuring system in chroot..."
 arch-chroot /mnt /bin/bash <<EOF
 set -euo pipefail
-set -x
 
-ln -sf /usr/share/zoneinfo/Europe/Minsk /etc/localtime
+# Time zone
+echo "Setting timezone..."
+ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
 
-echo "$LANG_CHOICE UTF-8" > /etc/locale.gen
+# Locale
+echo "Configuring locale..."
+echo "$LOCALE UTF-8" > /etc/locale.gen
 locale-gen
-echo "LANG=$LANG_CHOICE" > /etc/locale.conf
+echo "LANG=$LOCALE" > /etc/locale.conf
 
-echo "archbox" > /etc/hostname
+# Console keymap
+echo "Setting keymap..."
+echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
+
+# Hostname & hosts
+echo "Setting hostname..."
+echo "$HOSTNAME" > /etc/hostname
 cat >> /etc/hosts <<HOSTS
-127.0.0.1 localhost
-::1       localhost
-127.0.1.1 archbox.localdomain archbox
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 HOSTS
 
-# Создание пользователя и установка одинаковых паролей
-useradd -m -G wheel -s /bin/bash "$USERNAME"
+# Root password
+echo "Setting root password..."
+echo "root:$PASSWORD" | chpasswd
+
+# Create user & grant sudo
+echo "Creating user..."
+useradd -m -G wheel,video,audio,storage,network -s /bin/bash "$USERNAME"
 echo "$USERNAME:$PASSWORD" | chpasswd
-echo "root:$PASSWORD"       | chpasswd
+sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# Настройка sudo (пароль тот же)
-echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
-
-# Включаем сервисы
+# Enable NetworkManager
+echo "Enabling NetworkManager..."
 systemctl enable NetworkManager
-systemctl enable sddm
 
-# Устанавливаем загрузчик EFI
-grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-grub-mkconfig -o /boot/grub/grub.cfg
+# X11 keyboard layouts
+echo "Configuring X11 keyboard..."
+mkdir -p /etc/X11/xorg.conf.d
+cat > /etc/X11/xorg.conf.d/00-keyboard.conf <<XKB
+Section "InputClass"
+  Identifier "system-keyboard"
+  MatchIsKeyboard "on"
+  Option "XkbLayout" "$XKB_LAYOUTS"
+  Option "XkbOptions" "$XKB_OPTIONS"
+EndSection
+XKB
 
-# NVIDIA modeset, если нужно
-if $INSTALL_NVIDIA; then
-  echo "options nvidia-drm modeset=1" > /etc/modprobe.d/nvidia.conf
+# Enable GDM
+echo "Enabling GDM..."
+systemctl enable gdm
+
+# NVIDIA setup (if present)
+if lspci | grep -i nvidia &>/dev/null; then
+  echo "Installing NVIDIA drivers..."
+  pacman -Sy --noconfirm nvidia nvidia-utils nvidia-settings
+  echo "nvidia" > /etc/modules-load.d/nvidia.conf
+  mkinitcpio -P
 fi
 
-mkinitcpio -P
+# Install & configure GRUB (BIOS)
+echo "Installing GRUB for BIOS..."
+grub-install --target=i386-pc --recheck "$DISK"
+grub-mkconfig -o /boot/grub/grub.cfg
+
 EOF
 
-#
-# 11) Завершение
-#
-whiptail --title "Готово" --msgbox "Установка завершена! Перезагрузите систему и войдите как $USERNAME." 10 60
+#  Done ───────────────────────────────────────────────────────────
+echo -e "\nInstallation complete! Reboot and enjoy GNOME on Arch."
+echo -e "Don't forget to remove installation media before rebooting!\n"
