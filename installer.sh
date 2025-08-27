@@ -8,8 +8,8 @@ set -euo pipefail
 #  Settings ────────────────────────────────────────────────────────
 DISK="/dev/nvme0n1"
 HOSTNAME="archkde"
-USERNAME="falied"
-PASSWORD="108660"
+USERNAME="f"
+PASSWORD="10"
 TIMEZONE="Europe/Minsk"
 LOCALE="en_US.UTF-8"
 KEYMAP="us"
@@ -31,19 +31,19 @@ sgdisk --new=3:-${SWAP_SIZE}:0    --typecode=3:8200 --change-name=3:'Linux swap'
 partprobe "$DISK"
 
 #  2) Format & mount ─────────────────────────────────────────────
-mkfs.fat -F32 "${DISK}p1"
-mkfs.ext4   "${DISK}p2"
-mkswap      "${DISK}p3"
-swapon      "${DISK}p3"
+mkfs.fat -F32 "${DISK}1"
+mkfs.ext4   "${DISK}2"
+mkswap      "${DISK}3"
+swapon      "${DISK}p"
 
-mount       "${DISK}p2" /mnt
+mount       "${DISK}2" /mnt
 mkdir -p    /mnt/boot
-mount       "${DISK}p1" /mnt/boot
+mount       "${DISK}1" /mnt/boot
 
 #  3) Base system install ────────────────────────────────────────
 pacstrap /mnt \
   base linux linux-firmware sudo nano vim networkmanager \
-  xorg hyprland waybar swaybg swaylock-effects grub efibootmgr gdm
+  xorg gnome firefox grub efibootmgr gdm
 
 #  4) fstab ──────────────────────────────────────────────────────
 genfstab -U /mnt >> /mnt/etc/fstab
