@@ -2,66 +2,84 @@
 set -euo pipefail
 
 # ┌─────────────────────────────────────────────────────────────────┐
-# │              FIX EFIBOOTMGR FAILED TO REGISTER                 │
+# │                 УСТАНОВКА ЗАГРУЗЧИКА GRUB BIOS                 │
 # └─────────────────────────────────────────────────────────────────┘
 
-echo "Fixing efibootmgr failed to register error..."
+#  Settings ────────────────────────────────────────────────────────
+DISK="/dev/sda"
+ROOT_PARTITION="/dev/sda1"
 
-# Проверяем, смонтирована ли EFI система
-if ! mount | grep -q "/boot"; then
-    echo "ERROR: /boot is not mounted!"
-    echo "Please mount your EFI partition to /boot first."
-    echo "Example: mount /dev/sda1 /boot"
+#  Pre-flight checks ───────────────────────────────────────────────
+[[ $EUID -ne 0 ]] && { echo "Запустите скрипт от root"; exit 1; }
+
+# Проверяем, смонтирована ли система
+if ! mount | grep -q "/mnt"; then
+    echo "Монтируем корневую файловую систему..."
+    mount $ROOT_PARTITION /mnt
+fi
+
+# Проверяем, что это BIOS система
+if [[ -d /sys/firmware/efi ]]; then
+    echo "ERROR: Система использует UEFI, но скрипт для BIOS!"
     exit 1
 fi
 
-# Проверяем, существует ли каталог EFI
-if [[ ! -d "/boot/EFI" ]]; then
-    echo "Creating EFI directory structure..."
-    mkdir -p /boot/EFI/BOOT
+# Монтируем необходимые системы для chroot
+echo "Монтируем системные каталоги..."
+mount --bind /dev /mnt/dev
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+mount --bind /run /mnt/run
+
+# Устанавливаем загрузчик в chroot
+echo "Устанавливаем загрузчик GRUB..."
+arch-chroot /mnt /bin/bash <<EOF
+set -euo pipefail
+
+# Устанавливаем GRUB если не установлен
+if ! command -v grub-install &> /dev/null; then
+    echo "Устанавливаем GRUB..."
+    pacman -Sy --noconfirm grub
 fi
 
-# Переустанавливаем efibootmgr для уверенности
-echo "Reinstalling efibootmgr..."
-pacman -S --noconfirm efibootmgr
-
-# Проверяем доступность EFI переменных
-echo "Checking EFI variables..."
-if [[ ! -d /sys/firmware/efi/efivars ]]; then
-    echo "ERROR: EFI variables not available!"
-    echo "Make sure you're booted in UEFI mode."
-    exit 1
-fi
-
-# Убедимся, что efivars смонтированы правильно
-if ! mount | grep -q efivarfs; then
-    echo "Mounting efivarfs..."
-    mount -t efivarfs efivarfs /sys/firmware/efi/efivars
-fi
-
-# Проверяем права на efivars
-echo "Checking efivars permissions..."
-if [[ ! -w /sys/firmware/efi/efivars ]]; then
-    echo "Setting efivars permissions..."
-    chmod -R 755 /sys/firmware/efi/efivars
-fi
-
-# Пробуем установить GRUB снова
-echo "Reinstalling GRUB..."
-grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+# Устанавливаем загрузчик на диск
+echo "Устанавливаем GRUB на $DISK..."
+grub-install --target=i386-pc --recheck --force $DISK
 
 # Генерируем конфигурацию GRUB
-echo "Generating GRUB configuration..."
+echo "Генерируем конфигурацию GRUB..."
 grub-mkconfig -o /boot/grub/grub.cfg
 
-# Проверяем результат
-echo "Checking if boot entry was created..."
-if efibootmgr | grep -q "GRUB"; then
-    echo "SUCCESS: GRUB boot entry created successfully!"
-    efibootmgr
+# Проверяем установку
+echo "Проверяем установку загрузчика..."
+if [ -f /boot/grub/i386-pc/core.img ]; then
+    echo "✓ GRUB успешно установлен!"
 else
-    echo "WARNING: Could not create boot entry automatically."
-    echo "You may need to create boot entry manually in your BIOS/UEFI settings."
+    echo "✗ Ошибка установки GRUB!"
+    exit 1
 fi
 
-echo "Fix completed!"
+EOF
+
+# Размонтируем системы
+echo "Размонтируем системные каталоги..."
+umount /mnt/dev
+umount /mnt/proc
+umount /mnt/sys
+umount /mnt/run
+
+# Проверяем, нужно ли размонтировать корневую
+if mount | grep -q "/mnt "; then
+    read -p "Размонтировать корневую файловую систему? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        umount /mnt
+        echo "Система размонтирована. Можно перезагружаться."
+    else
+        echo "Корневая файловая система осталась смонтированной."
+    fi
+fi
+
+echo -e "\n✅ Загрузчик GRUB успешно установлен!"
+echo -e "📀 Перезагрузите систему: reboot"
+echo -e "🔧 Убедитесь, что в BIOS установлена загрузка с жесткого диска"
