@@ -2,14 +2,14 @@
 set -euo pipefail
 
 # ┌─────────────────────────────────────────────────────────────────┐
-# │             ARCH AUTO-INSTALL — KDE + EFI + GDM               │
+# │             ARCH AUTO-INSTALL — GNOME + EFI + GDM               │
 # └─────────────────────────────────────────────────────────────────┘
 
 #  Settings ────────────────────────────────────────────────────────
-DISK="/dev/nvme0n1"
-HOSTNAME="archkde"
-USERNAME="f"
-PASSWORD="10"
+DISK="/dev/sda"
+HOSTNAME="archgnome"
+USERNAME="karifander"
+PASSWORD="230409"
 TIMEZONE="Europe/Minsk"
 LOCALE="en_US.UTF-8"
 KEYMAP="us"
@@ -34,7 +34,7 @@ partprobe "$DISK"
 mkfs.fat -F32 "${DISK}1"
 mkfs.ext4   "${DISK}2"
 mkswap      "${DISK}3"
-swapon      "${DISK}p"
+swapon      "${DISK}3"
 
 mount       "${DISK}2" /mnt
 mkdir -p    /mnt/boot
@@ -43,7 +43,7 @@ mount       "${DISK}1" /mnt/boot
 #  3) Base system install ────────────────────────────────────────
 pacstrap /mnt \
   base linux linux-firmware sudo nano vim networkmanager \
-  xorg gnome firefox grub efibootmgr gdm
+  xorg gnome gnome-extra firefox grub efibootmgr gdm
 
 #  4) fstab ──────────────────────────────────────────────────────
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -97,12 +97,7 @@ XKB
 # Enable GDM
 systemctl enable gdm
 
-# NVIDIA setup (if present)
-if lspci | grep -i nvidia &>/dev/null; then
-  pacman -Sy --noconfirm nvidia nvidia-utils nvidia-settings
-  echo "nvidia" > /etc/modules-load.d/nvidia.conf
-  mkinitcpio -P
-fi
+
 
 # Install & configure GRUB (UEFI)
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
@@ -111,5 +106,4 @@ grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
 #  Done ───────────────────────────────────────────────────────────
-echo -e "\nInstallation complete! Reboot and enjoy KDE with GDM on Arch.\n"
-```[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/inkeso/keenterm/tree/618ed4f8ad30fda74bf94313ee6bca5220b28624/keenterm.py?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "1")[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/ngtaloc/TotNghiep-Project/tree/8b72be93496d37f227ac7d87d5aae25d5241d519/WebEng%2FWebEng%2FContent%2FTemplate%2Fplugins%2Fraphael%2Fraphael.js?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "2")[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/alexherbo2/alexherbo2.github.io/tree/15b5e22b2fda88effb427a1047a10bb465a8d25d/packages%2Fmodal.js?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "3")
+echo -e "\nInstallation complete! Reboot and enjoy GNOME on Arch.\n"
