@@ -24,12 +24,10 @@ ping -c1 archlinux.org &>/dev/null || { echo "No internet connection"; exit 1; }
 # Проверяем, что это BIOS система
 if [[ -d /sys/firmware/efi ]]; then
     echo "ERROR: This system uses UEFI, but script is configured for BIOS!"
-    echo "Please use the UEFI version of the script."
     exit 1
 fi
 
 #  1) Partitioning ────────────────────────────────────────────────
-# Wipe existing partitions, create MBR and two partitions: root and swap
 echo "Creating MBR partition table..."
 parted -s "$DISK" mklabel msdos
 parted -s "$DISK" mkpart primary ext4 1MiB -${SWAP_SIZE}
@@ -47,9 +45,7 @@ mount     "${DISK}1" /mnt
 
 #  3) Base system install ────────────────────────────────────────
 echo "Installing base system..."
-pacstrap /mnt \
-  base linux linux-firmware sudo nano vim networkmanager \
-  xorg gnome gnome-extra firefox grub gdm
+pacstrap /mnt base base-devel linux linux-firmware sudo nano vim networkmanager
 
 #  4) fstab ──────────────────────────────────────────────────────
 echo "Generating fstab..."
@@ -94,6 +90,10 @@ useradd -m -G wheel,video,audio,storage,network -s /bin/bash "$USERNAME"
 echo "$USERNAME:$PASSWORD" | chpasswd
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
+# Install desktop environment
+echo "Installing GNOME..."
+pacman -Sy --noconfirm xorg gnome gnome-extra firefox gdm
+
 # Enable NetworkManager
 echo "Enabling NetworkManager..."
 systemctl enable NetworkManager
@@ -114,21 +114,16 @@ XKB
 echo "Enabling GDM..."
 systemctl enable gdm
 
-# NVIDIA setup (if present)
-if lspci | grep -i nvidia &>/dev/null; then
-  echo "Installing NVIDIA drivers..."
-  pacman -Sy --noconfirm nvidia nvidia-utils nvidia-settings
-  echo "nvidia" > /etc/modules-load.d/nvidia.conf
-  mkinitcpio -P
-fi
-
 # Install & configure GRUB (BIOS)
 echo "Installing GRUB for BIOS..."
+pacman -Sy --noconfirm grub
 grub-install --target=i386-pc --recheck "$DISK"
 grub-mkconfig -o /boot/grub/grub.cfg
 
 EOF
 
 #  Done ───────────────────────────────────────────────────────────
-echo -e "\nInstallation complete! Reboot and enjoy GNOME on Arch."
-echo -e "Don't forget to remove installation media before rebooting!\n"
+echo -e "\n✅ Installation complete!"
+echo -e "📀 Reboot system: umount -R /mnt && reboot"
+echo -e "🔧 Make sure BIOS is set to boot from hard disk"
+echo -e "🎮 After reboot, login with username: $USERNAME, password: $PASSWORD"
